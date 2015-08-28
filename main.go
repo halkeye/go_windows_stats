@@ -73,7 +73,7 @@ func getDiskStats() (stats []Stat) {
 
 	return
 }
-func getCPUStats() (stat Stat) {
+func getCPUStats() (stats []Stat) {
 	var out bytes.Buffer
 	cmd := exec.Command("typeperf", "-sc", "1", "processor(_total)\\% processor time")
 	cmd.Stdout = &out
@@ -84,12 +84,12 @@ func getCPUStats() (stat Stat) {
 
 	chunks := strings.Split(out.String(), ",")
 	chunks = strings.Split(chunks[2], "\"")
-	stat = Stat{"cpu", chunks[1], time.Now().Unix()}
+	stats = append(stats, Stat{"cpu", chunks[1], time.Now().Unix()})
 	return
 }
 
 func getStats() (stats []Stat) {
-	stats = append(stats, getCPUStats())
+	stats = append(stats, getCPUStats()...)
 	stats = append(stats, getDiskStats()...)
 	return
 }
