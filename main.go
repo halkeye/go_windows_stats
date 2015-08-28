@@ -18,10 +18,8 @@ type Stat struct {
 	DT    int64  `json:"dt"`
 }
 
-func main() {
-	var stats []Stat
+func getCPUStats() (stat Stat) {
 	var out bytes.Buffer
-
 	cmd := exec.Command("typeperf", "-sc", "1", "processor(_total)\\% processor time")
 	cmd.Stdout = &out
 	err := cmd.Run()
@@ -31,9 +29,15 @@ func main() {
 
 	chunks := strings.Split(out.String(), ",")
 	chunks = strings.Split(chunks[2], "\"")
-	stat := Stat{"cpu", chunks[1], time.Now().Unix()}
-	stats = append(stats, stat)
+	stat = Stat{"cpu", chunks[1], time.Now().Unix()}
+	return
+}
 
-	b, err := json.Marshal(stat)
+func getStats() (stats []Stat) {
+	stats = append(stats, getCPUStats(), getCPUStats(), getCPUStats())
+	return
+}
+func main() {
+	b, _ := json.Marshal(getStats())
 	log.Printf("Output: %s", string(b))
 }
