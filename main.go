@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"container/list"
 	"encoding/json"
 	"log"
 	"os/exec"
@@ -18,7 +17,7 @@ type Stat struct {
 }
 
 func main() {
-	stats := list.New()
+	var stats []Stat
 	var out bytes.Buffer
 
 	cmd := exec.Command("typeperf", "-sc", "1", "processor(_total)\\% processor time")
@@ -31,7 +30,7 @@ func main() {
 	chunks := strings.Split(out.String(), ",")
 	chunks = strings.Split(chunks[2], "\"")
 	stat := Stat{"cpu", chunks[1], time.Now().Unix()}
-	stats.PushBack(stat)
+	stats = append(stats, stat)
 
 	b, err := json.Marshal(stat)
 	log.Printf("Output: %s", string(b))
