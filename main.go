@@ -5,11 +5,26 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/StackExchange/wmi"
 )
+
+// Win32_Volume - wmic volume where DriveType=3 list brief
+type Win32_Volume struct {
+	Capacity   int64
+	DriveType  int64
+	FileSystem string
+	FreeSpace  int64
+	Label      *string
+	Name       string
+}
 
 // Stat represents stats to send to graphite
 type Stat struct {
@@ -35,6 +50,29 @@ func schedule(what func(), delay time.Duration) chan bool {
 	return stop
 }
 
+func getDiskStats() (stats []Stat) {
+	var dst []Win32_Volume
+	nonAlphaNumReg, _ := regexp.Compile("[^A-Za-z0-9]+")
+
+	q := wmi.CreateQuery(&dst, "Where DriveType=3 and NOT Label='System Reserved'")
+	err := wmi.Query(q, &dst)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, v := range dst {
+		keyPrefix := fmt.Sprintf("disk.%s", nonAlphaNumReg.ReplaceAllLiteralString(v.Name, "_"))
+		percent := int64(100 * (float64(v.FreeSpace) / float64(v.Capacity)))
+
+		b, _ := json.Marshal(v)
+		log.Printf("Disk: %s", string(b))
+
+		stats = append(stats, Stat{fmt.Sprintf("%s.percent_used", keyPrefix), strconv.FormatInt(percent, 10), time.Now().Unix()})
+		stats = append(stats, Stat{fmt.Sprintf("%s.free", keyPrefix), strconv.FormatInt(v.FreeSpace, 10), time.Now().Unix()})
+		stats = append(stats, Stat{fmt.Sprintf("%s.avail", keyPrefix), strconv.FormatInt(v.Capacity, 10), time.Now().Unix()})
+	}
+
+	return
+}
 func getCPUStats() (stat Stat) {
 	var out bytes.Buffer
 	cmd := exec.Command("typeperf", "-sc", "1", "processor(_total)\\% processor time")
@@ -52,6 +90,7 @@ func getCPUStats() (stat Stat) {
 
 func getStats() (stats []Stat) {
 	stats = append(stats, getCPUStats())
+	stats = append(stats, getDiskStats()...)
 	return
 }
 
