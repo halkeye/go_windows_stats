@@ -3,10 +3,11 @@
 package main
 
 import (
-	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -96,9 +97,14 @@ func getComputerSystemStats() (stats []Stat) {
 	return
 }
 
+var nonAlphaNumReg = regexp.MustCompile("[^A-Za-z0-9]+")
+
+func happyDriveName(driveLetter string) string {
+	return nonAlphaNumReg.ReplaceAllLiteralString(driveLetter, "")
+}
+
 func getDiskStats() (stats []Stat) {
 	var dst []Win32_Volume
-	nonAlphaNumReg, _ := regexp.Compile("[^A-Za-z0-9]+")
 
 	q := wmi.CreateQuery(&dst, "Where DriveType=3 and NOT Label='System Reserved'")
 	err := wmi.Query(q, &dst)
@@ -106,7 +112,7 @@ func getDiskStats() (stats []Stat) {
 		log.Fatal(err)
 	}
 	for _, v := range dst {
-		keyPrefix := fmt.Sprintf("disk.%s", nonAlphaNumReg.ReplaceAllLiteralString(v.Name, "_"))
+		keyPrefix := fmt.Sprintf("disk.%s", happyDriveName(v.Name))
 		percent := int64(100 * (float64(v.FreeSpace) / float64(v.Capacity)))
 
 		stats = append(stats, Stat{fmt.Sprintf("%s.percent_used", keyPrefix), strconv.FormatInt(percent, 10), time.Now().Unix()})
@@ -116,18 +122,88 @@ func getDiskStats() (stats []Stat) {
 
 	return
 }
-func getCPUStats() (stats []Stat) {
-	var out bytes.Buffer
-	cmd := exec.Command("typeperf", "-sc", "1", "processor(_total)\\% processor time")
-	cmd.Stdout = &out
-	err := cmd.Run()
+
+func callTypePerf(fields []string) (headers []string, records [][]string) {
+	var (
+		cmdOut []byte
+		err    error
+	)
+	cmdName := "typeperf"
+	cmdArgs := []string{
+		"-sc",
+		"1",
+	}
+	cmdArgs = append(cmdArgs, fields...)
+	if cmdOut, err = exec.Command(cmdName, cmdArgs...).Output(); err != nil {
+		fmt.Fprintln(os.Stderr, "There was an error running typeperf command: ", err)
+		os.Exit(1)
+	}
+	var lines []string
+	for _, line := range strings.Split(string(cmdOut), "\n") {
+		if strings.HasPrefix(line, "\"") {
+			lines = append(lines, line)
+		}
+	}
+
+	r := csv.NewReader(strings.NewReader(strings.Join(lines, "\n")))
+	records, err = r.ReadAll()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	chunks := strings.Split(out.String(), ",")
-	chunks = strings.Split(chunks[2], "\"")
-	stats = append(stats, Stat{"cpu", chunks[1], time.Now().Unix()})
+	headers, records = records[0], records[1:]
+	return
+}
+
+var logicalDiskRegex = regexp.MustCompile("^LogicalDisk\\(([^)]+)\\)$")
+var logicalDiskStatMap = map[string]string{
+	"Avg. Disk sec/Read":  "disk_read_io",
+	"Avg. Disk sec/Write": "disk_write_io",
+}
+
+func getCPUStats() (stats []Stat) {
+	headers, records := callTypePerf([]string{
+		"processor(_total)\\% processor time",
+		"LogicalDisk(*)\\Avg. Disk sec/Read",
+		"LogicalDisk(*)\\Avg. Disk sec/Write",
+	})
+	for headerNum, header := range headers[1:] {
+		headerParts := strings.Split(header, "\\")
+		headers[headerNum] = strings.Join(headerParts[3:len(headerParts)], "\\")
+	}
+	for _, row := range records {
+		for colNum, col := range row[1:] {
+			headerParts := strings.Split(headers[colNum], "\\")
+
+			if strings.HasPrefix(headerParts[0], "processor(") {
+				stats = append(stats, Stat{"cpu", col, time.Now().Unix()})
+				continue
+			}
+
+			if results := logicalDiskRegex.FindStringSubmatch(headerParts[0]); results != nil {
+				if results[1] == "_Total" {
+					continue
+				}
+				if strings.HasPrefix(results[1], "HarddiskVolume") {
+					continue
+				}
+
+				keyPrefix := fmt.Sprintf("disk.%s", happyDriveName(results[1]))
+				fieldName, ok := logicalDiskStatMap[strings.Join(headerParts[1:], "/")]
+				if ok {
+					stats = append(stats, Stat{
+						fmt.Sprintf("%s.%s", keyPrefix, fieldName),
+						col,
+						time.Now().Unix(),
+					})
+					continue
+				}
+			}
+
+			// happyDriveName
+			log.Printf("%s = %s", headers[colNum], col)
+		}
+	}
 	return
 }
 
@@ -148,7 +224,7 @@ func main() {
 	outputStatsInterval := func() {
 		var stat Stat
 		for len(stats) != 0 {
-			stat, stats = stats[len(stats)-1], stats[:len(stats)-1]
+			stat, stats = stats[0], stats[1:]
 			b, _ := json.Marshal(stat)
 			log.Printf("Output: %s", string(b))
 		}
