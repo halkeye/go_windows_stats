@@ -47,9 +47,9 @@ type Win32_OperatingSystem struct {
 
 // Stat represents stats to send to graphite
 type Stat struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-	DT    int64  `json:"dt"`
+	Key   string    `json:"key"`
+	Value string    `json:"value"`
+	DT    time.Time `json:"dt"`
 }
 
 func schedule(what func(), delay time.Duration) chan bool {
@@ -77,15 +77,15 @@ func getOperatingSystemStats() (stats []Stat) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	stats = append(stats, Stat{"mem.physical.free", strconv.FormatUint(dst[0].FreePhysicalMemory, 10), time.Now().Unix()})
-	stats = append(stats, Stat{"mem.virtual.free", strconv.FormatUint(dst[0].FreeVirtualMemory, 10), time.Now().Unix()})
-	stats = append(stats, Stat{"mem.virtual.total", strconv.FormatUint(dst[0].TotalVirtualMemorySize, 10), time.Now().Unix()})
-	stats = append(stats, Stat{"mem.visible.total", strconv.FormatUint(dst[0].TotalVisibleMemorySize, 10), time.Now().Unix()})
-	stats = append(stats, Stat{"processes.total", strconv.FormatUint(dst[0].NumberOfProcesses, 10), time.Now().Unix()})
+	stats = append(stats, Stat{"mem.physical.free", strconv.FormatUint(dst[0].FreePhysicalMemory, 10), time.Now().UTC()})
+	stats = append(stats, Stat{"mem.virtual.free", strconv.FormatUint(dst[0].FreeVirtualMemory, 10), time.Now().UTC()})
+	stats = append(stats, Stat{"mem.virtual.total", strconv.FormatUint(dst[0].TotalVirtualMemorySize, 10), time.Now().UTC()})
+	stats = append(stats, Stat{"mem.visible.total", strconv.FormatUint(dst[0].TotalVisibleMemorySize, 10), time.Now().UTC()})
+	stats = append(stats, Stat{"processes.total", strconv.FormatUint(dst[0].NumberOfProcesses, 10), time.Now().UTC()})
 	stats = append(stats, Stat{
 		"uptime",
 		strconv.FormatUint(uint64(time.Since(dst[0].LastBootUpTime).Seconds()), 10),
-		time.Now().Unix(),
+		time.Now().UTC(),
 	})
 	return
 }
@@ -98,7 +98,7 @@ func getComputerSystemStats() (stats []Stat) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	stats = append(stats, Stat{"mem.physical.total", strconv.FormatUint(dst[0].TotalPhysicalMemory, 10), time.Now().Unix()})
+	stats = append(stats, Stat{"mem.physical.total", strconv.FormatUint(dst[0].TotalPhysicalMemory, 10), time.Now().UTC()})
 	return
 }
 
@@ -120,9 +120,9 @@ func getDiskStats() (stats []Stat) {
 		keyPrefix := fmt.Sprintf("disk.%s", happyDriveName(v.Name))
 		percent := int64(100 * (float64(v.FreeSpace) / float64(v.Capacity)))
 
-		stats = append(stats, Stat{fmt.Sprintf("%s.percent_used", keyPrefix), strconv.FormatInt(percent, 10), time.Now().Unix()})
-		stats = append(stats, Stat{fmt.Sprintf("%s.free", keyPrefix), strconv.FormatUint(v.FreeSpace, 10), time.Now().Unix()})
-		stats = append(stats, Stat{fmt.Sprintf("%s.avail", keyPrefix), strconv.FormatUint(v.Capacity, 10), time.Now().Unix()})
+		stats = append(stats, Stat{fmt.Sprintf("%s.percent_used", keyPrefix), strconv.FormatInt(percent, 10), time.Now().UTC()})
+		stats = append(stats, Stat{fmt.Sprintf("%s.free", keyPrefix), strconv.FormatUint(v.FreeSpace, 10), time.Now().UTC()})
+		stats = append(stats, Stat{fmt.Sprintf("%s.avail", keyPrefix), strconv.FormatUint(v.Capacity, 10), time.Now().UTC()})
 	}
 
 	return
@@ -181,7 +181,7 @@ func getCPUStats() (stats []Stat) {
 			headerParts := strings.Split(headers[colNum], "\\")
 
 			if strings.HasPrefix(headerParts[0], "processor(") {
-				stats = append(stats, Stat{"cpu", col, time.Now().Unix()})
+				stats = append(stats, Stat{"cpu", col, time.Now().UTC()})
 				continue
 			}
 
@@ -199,7 +199,7 @@ func getCPUStats() (stats []Stat) {
 					stats = append(stats, Stat{
 						fmt.Sprintf("%s.%s", keyPrefix, fieldName),
 						col,
-						time.Now().Unix(),
+						time.Now().UTC(),
 					})
 					continue
 				}
