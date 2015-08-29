@@ -42,6 +42,7 @@ type Win32_OperatingSystem struct {
 	NumberOfProcesses      uint64
 	TotalVirtualMemorySize uint64
 	TotalVisibleMemorySize uint64
+	LastBootUpTime         time.Time
 }
 
 // Stat represents stats to send to graphite
@@ -81,7 +82,11 @@ func getOperatingSystemStats() (stats []Stat) {
 	stats = append(stats, Stat{"mem.virtual.total", strconv.FormatUint(dst[0].TotalVirtualMemorySize, 10), time.Now().Unix()})
 	stats = append(stats, Stat{"mem.visible.total", strconv.FormatUint(dst[0].TotalVisibleMemorySize, 10), time.Now().Unix()})
 	stats = append(stats, Stat{"processes.total", strconv.FormatUint(dst[0].NumberOfProcesses, 10), time.Now().Unix()})
-
+	stats = append(stats, Stat{
+		"uptime",
+		strconv.FormatUint(uint64(time.Since(dst[0].LastBootUpTime).Seconds()), 10),
+		time.Now().Unix(),
+	})
 	return
 }
 
