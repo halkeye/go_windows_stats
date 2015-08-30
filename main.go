@@ -4,7 +4,7 @@ package main
 
 import (
 	"encoding/csv"
-	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/StackExchange/wmi"
+	"github.com/marpaia/graphite-golang"
 )
 
 // Win32_Volume - wmic volume where DriveType=3 list brief
@@ -50,6 +51,15 @@ type Stat struct {
 	Key   string    `json:"key"`
 	Value string    `json:"value"`
 	DT    time.Time `json:"dt"`
+}
+
+// Config - structure for various config attributes
+type Config struct {
+	computerName    string
+	graphiteHost    string
+	graphitePort    int
+	graphiteMode    string
+	graphiteEnabled bool
 }
 
 func schedule(what func(), delay time.Duration) chan bool {
@@ -220,8 +230,30 @@ func getStats() (stats []Stat) {
 	return
 }
 
+var config = Config{}
+
 func main() {
 	var stats []Stat
+	var g *graphite.Graphite
+	var err error
+	hostname, _ := os.Hostname()
+
+	flag.StringVar(&config.computerName, "computerName", hostname, "Computer Name")
+	flag.BoolVar(&config.graphiteEnabled, "graphite", false, "Enable Graphite")
+	flag.StringVar(&config.graphiteHost, "graphiteHost", "localhost", "graphite hostname")
+	flag.IntVar(&config.graphitePort, "graphitePort", 2003, "graphite port")
+	//flag.StringVar(&config.graphiteMode, "graphiteMode", "tcp", "tcp or udp")
+	flag.Parse()
+
+	if config.graphiteEnabled {
+		g, err = graphite.NewGraphite(config.graphiteHost, config.graphitePort)
+		if err != nil {
+			log.Fatal("Error connecting to graphite", err)
+		}
+	} else {
+		g = graphite.NewGraphiteNop(config.graphiteHost, config.graphitePort)
+	}
+
 	getStatsInterval := func() {
 		newStats := getStats()
 		stats = append(stats, newStats...)
@@ -230,8 +262,11 @@ func main() {
 		var stat Stat
 		for len(stats) != 0 {
 			stat, stats = stats[0], stats[1:]
-			b, _ := json.Marshal(stat)
-			log.Printf("Output: %s", string(b))
+			g.SendMetric(graphite.NewMetric(
+				fmt.Sprintf("%s.%s", config.computerName, stat.Key),
+				stat.Value,
+				stat.DT.Unix(),
+			))
 		}
 	}
 	/*stopGet := */ schedule(getStatsInterval, 5*time.Second)
