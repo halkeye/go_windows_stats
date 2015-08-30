@@ -163,67 +163,102 @@ func callTypePerf(fields []string) (headers []string, records [][]string) {
 	r := csv.NewReader(strings.NewReader(strings.Join(lines, "\n")))
 	records, err = r.ReadAll()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Err: %s, String: %s", err, string(cmdOut))
 	}
 
 	headers, records = records[0], records[1:]
 	return
 }
 
-var logicalDiskRegex = regexp.MustCompile("^LogicalDisk\\(([^)]+)\\)$")
-var logicalDiskStatMap = map[string]string{
-	"Avg. Disk sec/Read":  "disk_read_io",
-	"Avg. Disk sec/Write": "disk_write_io",
+type typeperfPair struct {
+	regexp       *regexp.Regexp
+	template     string
+	allowedTotal bool
 }
 
-func getCPUStats() (stats []Stat) {
-	headers, records := callTypePerf([]string{
-		"processor(_total)\\% processor time",
-		"LogicalDisk(*)\\Avg. Disk sec/Read",
-		"LogicalDisk(*)\\Avg. Disk sec/Write",
-	})
+var typeperfRewrites = []typeperfPair{
+	typeperfPair{
+		regexp:   regexp.MustCompile("^LogicalDisk\\((?P<driveName>[^)]+)\\)\\\\Avg. Disk sec\\/Read"),
+		template: "disk.${driveName}.disk_read_io",
+	},
+	typeperfPair{
+		regexp:   regexp.MustCompile("^LogicalDisk\\((?P<driveName>[^)]+)\\)\\\\Avg. Disk sec\\/Write$"),
+		template: "disk.${driveName}.disk_write_io",
+	},
+	typeperfPair{
+		regexp:   regexp.MustCompile("^processor\\(_total\\)\\\\% processor time$"),
+		template: "cpu",
+	},
+}
+
+func processTypePerf(headers []string, records [][]string) (stats []Stat) {
 	for headerNum, header := range headers[1:] {
 		headerParts := strings.Split(header, "\\")
 		headers[headerNum] = strings.Join(headerParts[3:len(headerParts)], "\\")
 	}
 	for _, row := range records {
+	ResultLoop:
 		for colNum, col := range row[1:] {
-			headerParts := strings.Split(headers[colNum], "\\")
+			for _, matchers := range typeperfRewrites {
+				if results := matchers.regexp.FindStringSubmatch(headers[colNum]); results != nil {
+					var variableMap = make(map[string]string)
 
-			if strings.HasPrefix(headerParts[0], "processor(") {
-				stats = append(stats, Stat{"cpu", col, time.Now().UTC()})
-				continue
-			}
+					if matchers.regexp.NumSubexp() != 0 {
+						for nameNo, name := range matchers.regexp.SubexpNames()[1:] {
+							if name == "driveName" {
+								/* if there are named matches, then don't allow _Total */
+								if results[1] == "_Total" {
+									continue ResultLoop
+								}
 
-			if results := logicalDiskRegex.FindStringSubmatch(headerParts[0]); results != nil {
-				if results[1] == "_Total" {
-					continue
-				}
-				if strings.HasPrefix(results[1], "HarddiskVolume") {
-					continue
-				}
+								/* If its a hidden drive name, ignore - FIXME */
+								if strings.HasPrefix(results[nameNo+1], "HarddiskVolume") {
+									continue ResultLoop
+								}
+								results[nameNo+1] = happyDriveName(results[nameNo+1])
+							}
+							variableMap[name] = results[nameNo+1]
+						}
+					}
 
-				keyPrefix := fmt.Sprintf("disk.%s", happyDriveName(results[1]))
-				fieldName, ok := logicalDiskStatMap[strings.Join(headerParts[1:], "/")]
-				if ok {
+					keyName := os.Expand(matchers.template, func(s string) string {
+						return variableMap[s]
+					})
 					stats = append(stats, Stat{
-						fmt.Sprintf("%s.%s", keyPrefix, fieldName),
+						keyName,
 						col,
 						time.Now().UTC(),
 					})
-					continue
+					continue ResultLoop
 				}
 			}
+			log.Printf("NOT FOUND --- %s = %s", headers[colNum], col)
 
-			// happyDriveName
-			log.Printf("%s = %s", headers[colNum], col)
 		}
 	}
 	return
 }
 
+func getCPUStats() (stats []Stat) {
+	headers, records := callTypePerf([]string{
+		"processor(_total)\\% processor time",
+	})
+	stats = processTypePerf(headers, records)
+	return
+}
+
+func getDiskIOStats() (stats []Stat) {
+	headers, records := callTypePerf([]string{
+		"LogicalDisk(*)\\Avg. Disk sec/Read",
+		"LogicalDisk(*)\\Avg. Disk sec/Write",
+	})
+	stats = processTypePerf(headers, records)
+	return
+}
+
 func getStats() (stats []Stat) {
 	stats = append(stats, getCPUStats()...)
+	stats = append(stats, getDiskIOStats()...)
 	stats = append(stats, getDiskStats()...)
 	stats = append(stats, getComputerSystemStats()...)
 	stats = append(stats, getOperatingSystemStats()...)
