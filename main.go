@@ -138,39 +138,6 @@ func getDiskStats() (stats []Stat) {
 	return
 }
 
-func callTypePerf(fields []string) (headers []string, records [][]string) {
-	var (
-		cmdOut []byte
-		err    error
-	)
-	cmdName := "typeperf"
-	cmdArgs := []string{
-		"-sc",
-		"1",
-	}
-	cmdArgs = append(cmdArgs, fields...)
-	if cmdOut, err = exec.Command(cmdName, cmdArgs...).Output(); err != nil {
-		fmt.Fprintln(os.Stderr, "There was an error running typeperf command: ", err)
-		os.Exit(1)
-	}
-	var lines []string
-	for _, line := range strings.Split(string(cmdOut), "\n") {
-		if strings.HasPrefix(line, "\"") {
-			lines = append(lines, line)
-		}
-	}
-
-	r := csv.NewReader(strings.NewReader(strings.Join(lines, "\n")))
-	records, err = r.ReadAll()
-	if err != nil {
-		log.Printf("Err: %s, String: %s", err, string(cmdOut))
-		return
-	}
-
-	headers, records = records[0], records[1:]
-	return
-}
-
 type typeperfPair struct {
 	regexp       *regexp.Regexp
 	template     string
@@ -206,9 +173,52 @@ var typeperfRewrites = []typeperfPair{
 		regexp:   regexp.MustCompile("^Memory\\\\Pages Input/sec$"),
 		template: "mem.pages",
 	},
+	typeperfPair{
+		regexp:   regexp.MustCompile("^Network Interface\\((?P<ifName>[^)]+)\\)\\\\Bytes (?P<receivedSent>(?:Received|Sent))/sec$"),
+		template: "network.${ifName}.bytes.${receivedSent}",
+	},
+	typeperfPair{
+		regexp:   regexp.MustCompile("^Network Interface\\((?P<ifName>[^)]+)\\)\\\\Packets (?P<receivedSent>(?:Received|Sent)) Unicast/sec$"),
+		template: "network.${ifName}.packets.unicast_${receivedSent}",
+	},
+	typeperfPair{
+		regexp:   regexp.MustCompile("^Network Interface\\((?P<ifName>[^)]+)\\)\\\\Packets (?P<receivedSent>(?:Received|Sent)) Non-Unicast/sec$"),
+		template: "network.${ifName}.packets.${receivedSent}",
+	},
 }
 
-func processTypePerf(headers []string, records [][]string) (stats []Stat) {
+func callTypePerf(fields []string) (stats []Stat) {
+	var (
+		cmdOut  []byte
+		err     error
+		headers []string
+		records [][]string
+	)
+	cmdName := "typeperf"
+	cmdArgs := []string{
+		"-sc",
+		"1",
+	}
+	cmdArgs = append(cmdArgs, fields...)
+	if cmdOut, err = exec.Command(cmdName, cmdArgs...).Output(); err != nil {
+		fmt.Fprintln(os.Stderr, "There was an error running typeperf command: ", err)
+		os.Exit(1)
+	}
+	var lines []string
+	for _, line := range strings.Split(string(cmdOut), "\n") {
+		if strings.HasPrefix(line, "\"") {
+			lines = append(lines, line)
+		}
+	}
+
+	r := csv.NewReader(strings.NewReader(strings.Join(lines, "\n")))
+	records, err = r.ReadAll()
+	if err != nil {
+		log.Printf("CmdArgs: [%s], Err: %s, String: %s", cmdArgs, err, string(cmdOut))
+		return
+	}
+
+	headers, records = records[0], records[1:]
 	for headerNum, header := range headers[1:] {
 		headerParts := strings.Split(header, "\\")
 		headers[headerNum] = strings.Join(headerParts[3:len(headerParts)], "\\")
@@ -222,8 +232,11 @@ func processTypePerf(headers []string, records [][]string) (stats []Stat) {
 
 					if matchers.regexp.NumSubexp() != 0 {
 						for nameNo, name := range matchers.regexp.SubexpNames()[1:] {
-							if name == "readWrite" {
+							if name == "readWrite" || name == "receivedSent" {
 								results[nameNo+1] = strings.ToLower(results[nameNo+1])
+							}
+							if name == "ifName" {
+								results[nameNo+1] = happyDriveName(results[nameNo+1])
 							}
 							if name == "driveName" {
 								/* if there are named matches, then don't allow _Total */
@@ -259,9 +272,14 @@ func processTypePerf(headers []string, records [][]string) (stats []Stat) {
 	return
 }
 
-func getTypePerfStats() (stats []Stat) {
-	headers, records := callTypePerf([]string{
+func getProcessorStats() (stats []Stat) {
+	stats = callTypePerf([]string{
 		"Processor(_Total)\\% Processor Time",
+	})
+	return
+}
+func getTypePerfStats() (stats []Stat) {
+	stats = callTypePerf([]string{
 		"LogicalDisk(*)\\Avg. Disk sec/Read",
 		"LogicalDisk(*)\\Avg. Disk sec/Write",
 		"Network Interface(*)\\Bytes Received/sec",
@@ -278,13 +296,13 @@ func getTypePerfStats() (stats []Stat) {
 		"PhysicalDisk(*)\\Avg. Disk Write Queue Length",
 		"PhysicalDisk(*)\\Avg. Disk Read Queue Length",
 	})
-	stats = processTypePerf(headers, records)
 	return
 }
 
 func getStats() (stats []Stat) {
 	stats = append(stats, getTypePerfStats()...)
 	stats = append(stats, getDiskStats()...)
+	stats = append(stats, getProcessorStats()...)
 	stats = append(stats, getComputerSystemStats()...)
 	stats = append(stats, getOperatingSystemStats()...)
 	return
