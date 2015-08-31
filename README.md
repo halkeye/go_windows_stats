@@ -12,7 +12,7 @@ I couldn't get the powershell scripts past our security setup and didn't have th
 Usage
 =====
 ```
-Usage of go_windows_stats.exe.exe:
+Usage of go_windows_stats.exe:
   -computerName string
         Computer Name (default "<hostname>")
   -graphite
