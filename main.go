@@ -163,7 +163,8 @@ func callTypePerf(fields []string) (headers []string, records [][]string) {
 	r := csv.NewReader(strings.NewReader(strings.Join(lines, "\n")))
 	records, err = r.ReadAll()
 	if err != nil {
-		log.Fatalf("Err: %s, String: %s", err, string(cmdOut))
+		log.Printf("Err: %s, String: %s", err, string(cmdOut))
+		return
 	}
 
 	headers, records = records[0], records[1:]
