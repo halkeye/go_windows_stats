@@ -178,16 +178,32 @@ type typeperfPair struct {
 
 var typeperfRewrites = []typeperfPair{
 	typeperfPair{
-		regexp:   regexp.MustCompile("^LogicalDisk\\((?P<driveName>[^)]+)\\)\\\\Avg. Disk sec\\/Read"),
-		template: "disk.${driveName}.disk_read_io",
+		regexp:   regexp.MustCompile("^LogicalDisk\\((?P<driveName>[^)]+)\\)\\\\Avg. Disk sec\\/(?P<readWrite>(?:Read|Write))$"),
+		template: "disk.${driveName}.disk_${readWrite}_io",
 	},
 	typeperfPair{
-		regexp:   regexp.MustCompile("^LogicalDisk\\((?P<driveName>[^)]+)\\)\\\\Avg. Disk sec\\/Write$"),
-		template: "disk.${driveName}.disk_write_io",
+		regexp:   regexp.MustCompile("^Processor\\(_Total\\)\\\\% Processor Time$"),
+		template: "system.cpu",
 	},
 	typeperfPair{
-		regexp:   regexp.MustCompile("^processor\\(_total\\)\\\\% processor time$"),
-		template: "cpu",
+		regexp:   regexp.MustCompile("^System\\\\Threads$"),
+		template: "system.threads",
+	},
+	typeperfPair{
+		regexp:   regexp.MustCompile("^System\\\\Processor Queue Length$"),
+		template: "system.processor_queue_length",
+	},
+	typeperfPair{
+		regexp:   regexp.MustCompile("^PhysicalDisk\\([0-9 ]*(?P<driveName>[^)]+)\\)\\\\Avg. Disk (?P<readWrite>(?:Read|Write)) Queue Length$"),
+		template: "disk.${driveName}.disk_${readWrite}_queue_length",
+	},
+	typeperfPair{
+		regexp:   regexp.MustCompile("^Memory\\\\Pages/sec$"),
+		template: "mem.pages",
+	},
+	typeperfPair{
+		regexp:   regexp.MustCompile("^Memory\\\\Pages Input/sec$"),
+		template: "mem.pages",
 	},
 }
 
@@ -205,9 +221,12 @@ func processTypePerf(headers []string, records [][]string) (stats []Stat) {
 
 					if matchers.regexp.NumSubexp() != 0 {
 						for nameNo, name := range matchers.regexp.SubexpNames()[1:] {
+							if name == "readWrite" {
+								results[nameNo+1] = strings.ToLower(results[nameNo+1])
+							}
 							if name == "driveName" {
 								/* if there are named matches, then don't allow _Total */
-								if results[1] == "_Total" {
+								if results[nameNo+1] == "_Total" {
 									continue ResultLoop
 								}
 
@@ -239,26 +258,31 @@ func processTypePerf(headers []string, records [][]string) (stats []Stat) {
 	return
 }
 
-func getCPUStats() (stats []Stat) {
+func getTypePerfStats() (stats []Stat) {
 	headers, records := callTypePerf([]string{
-		"processor(_total)\\% processor time",
-	})
-	stats = processTypePerf(headers, records)
-	return
-}
-
-func getDiskIOStats() (stats []Stat) {
-	headers, records := callTypePerf([]string{
+		"Processor(_Total)\\% Processor Time",
 		"LogicalDisk(*)\\Avg. Disk sec/Read",
 		"LogicalDisk(*)\\Avg. Disk sec/Write",
+		"Network Interface(*)\\Bytes Received/sec",
+		"Network Interface(*)\\Bytes Sent/sec",
+		"Network Interface(*)\\Packets Received Unicast/sec",
+		"Network Interface(*)\\Packets Sent Unicast/sec",
+		"Network Interface(*)\\Packets Received Non-Unicast/sec",
+		"Network Interface(*)\\Packets Sent Non-Unicast/sec",
+		//"Memory\\Available MBytes",
+		"Memory\\Pages/sec",
+		"Memory\\Pages Input/sec",
+		"System\\Processor Queue Length",
+		"System\\Threads",
+		"PhysicalDisk(*)\\Avg. Disk Write Queue Length",
+		"PhysicalDisk(*)\\Avg. Disk Read Queue Length",
 	})
 	stats = processTypePerf(headers, records)
 	return
 }
 
 func getStats() (stats []Stat) {
-	stats = append(stats, getCPUStats()...)
-	stats = append(stats, getDiskIOStats()...)
+	stats = append(stats, getTypePerfStats()...)
 	stats = append(stats, getDiskStats()...)
 	stats = append(stats, getComputerSystemStats()...)
 	stats = append(stats, getOperatingSystemStats()...)
