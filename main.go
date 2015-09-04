@@ -310,6 +310,20 @@ func getStats() (stats []Stat) {
 
 var config = Config{}
 
+func getGraphite(config Config) (g *graphite.Graphite) {
+	var err error
+
+	if config.graphiteEnabled {
+		g, err = graphite.NewGraphite(config.graphiteHost, config.graphitePort)
+		if err != nil {
+			log.Fatal("Error connecting to graphite", err)
+		}
+	} else {
+		g = graphite.NewGraphiteNop(config.graphiteHost, config.graphitePort)
+	}
+	return
+}
+
 func main() {
 	var stats []Stat
 	var g *graphite.Graphite
@@ -323,14 +337,7 @@ func main() {
 	//flag.StringVar(&config.graphiteMode, "graphiteMode", "tcp", "tcp or udp")
 	flag.Parse()
 
-	if config.graphiteEnabled {
-		g, err = graphite.NewGraphite(config.graphiteHost, config.graphitePort)
-		if err != nil {
-			log.Fatal("Error connecting to graphite", err)
-		}
-	} else {
-		g = graphite.NewGraphiteNop(config.graphiteHost, config.graphitePort)
-	}
+	g = getGraphite(config)
 
 	getStatsInterval := func() {
 		newStats := getStats()
@@ -340,11 +347,16 @@ func main() {
 		var stat Stat
 		for len(stats) != 0 {
 			stat, stats = stats[0], stats[1:]
-			g.SendMetric(graphite.NewMetric(
+			err = g.SendMetric(graphite.NewMetric(
 				fmt.Sprintf("%s.%s", config.computerName, stat.Key),
 				stat.Value,
 				stat.DT.Unix(),
 			))
+			if err != nil {
+				stats = append(stats, stat)
+				log.Printf("Error writing to: %s", err)
+				g = getGraphite(config)
+			}
 		}
 	}
 	/*stopGet := */ schedule(getStatsInterval, 5*time.Second)
