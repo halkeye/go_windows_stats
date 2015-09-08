@@ -316,7 +316,7 @@ func getGraphite(config Config) (g *graphite.Graphite) {
 	if config.graphiteEnabled {
 		g, err = graphite.NewGraphite(config.graphiteHost, config.graphitePort)
 		if err != nil {
-			log.Fatal("Error connecting to graphite", err)
+			log.Fatalf("Error connecting to graphite: %s", err)
 		}
 	} else {
 		g = graphite.NewGraphiteNop(config.graphiteHost, config.graphitePort)
