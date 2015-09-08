@@ -85,7 +85,7 @@ func getOperatingSystemStats() (stats []Stat) {
 	q := wmi.CreateQuery(&dst, "")
 	err := wmi.Query(q, &dst)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("getOperatingSystemStats: %s", err)
 	}
 	stats = append(stats, Stat{"mem.physical.free", strconv.FormatUint(dst[0].FreePhysicalMemory, 10), time.Now().UTC()})
 	stats = append(stats, Stat{"mem.virtual.free", strconv.FormatUint(dst[0].FreeVirtualMemory, 10), time.Now().UTC()})
@@ -106,7 +106,7 @@ func getComputerSystemStats() (stats []Stat) {
 	q := wmi.CreateQuery(&dst, "")
 	err := wmi.Query(q, &dst)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("getComputerSystemStats: %s", err)
 	}
 	stats = append(stats, Stat{"mem.physical.total", strconv.FormatUint(dst[0].TotalPhysicalMemory, 10), time.Now().UTC()})
 	return
@@ -124,7 +124,7 @@ func getDiskStats() (stats []Stat) {
 	q := wmi.CreateQuery(&dst, "Where DriveType=3 and NOT Label='System Reserved'")
 	err := wmi.Query(q, &dst)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("getDiskStats: %s", err)
 	}
 	for _, v := range dst {
 		keyPrefix := fmt.Sprintf("disk.%s", happyDriveName(v.Name))
@@ -201,7 +201,7 @@ func callTypePerf(fields []string) (stats []Stat) {
 	}
 	cmdArgs = append(cmdArgs, fields...)
 	if cmdOut, err = exec.Command(cmdName, cmdArgs...).Output(); err != nil {
-		fmt.Fprintln(os.Stderr, "There was an error running typeperf command: ", err)
+		log.Fatalf("There was an error running typeperf command [%s %s]: %s", cmdName, cmdArgs, err)
 		os.Exit(1)
 	}
 	var lines []string
