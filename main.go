@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
@@ -62,8 +63,8 @@ type Config struct {
 	graphiteEnabled bool
 }
 
-func schedule(what func(), delay time.Duration) chan bool {
-	stop := make(chan bool)
+func schedule(what func(), delay time.Duration) chan struct{} {
+	stop := make(chan struct{})
 
 	go func() {
 		for {
@@ -359,9 +360,11 @@ func main() {
 			}
 		}
 	}
-	/*stopGet := */ schedule(getStatsInterval, 5*time.Second)
-	/*stopOutput := */ schedule(outputStatsInterval, 5*time.Millisecond)
-	for {
-		time.Sleep(100 * time.Second)
-	}
+	stopGet := schedule(getStatsInterval, 5*time.Second)
+	stopOutput := schedule(outputStatsInterval, 5*time.Millisecond)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, os.Kill)
+	<-c
+	stopGet <- struct{}{}
+	stopOutput <- struct{}{}
 }
